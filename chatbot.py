@@ -1,67 +1,67 @@
 import os
+import datetime
 from dotenv import load_dotenv
-import google.generativeai as genai
-import datetime  # Added for getting the current time
 
-# Assuming system_info.py is a local file with these functions
+# Import LangChain components
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
 from system_info import (get_cpu_info, get_memory_info, get_battery_info, get_network_info)
 
-# Load environment variables from a .env file
+# Load environment variables
 load_dotenv()
 
-# Configure the Gemini API key
-try:
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-except Exception as e:
-    print(f"Error configuring Gemini API: {e}")
-    print("Please ensure your GOOGLE_API_KEY is set correctly in your .env file.")
-    exit()
+# --- 1. Define the LangChain Components ---
 
-def ask_llm_gemini(user_input):
+# Initialize the LLM (Large Language Model)
+# This is the LangChain wrapper for the Gemini model.
+llm = ChatGoogleGenerativeAI(model="gemini-pro-latest")
+
+# Create a Prompt Template
+# This replaces the f-string. Variables are enclosed in {}.
+template = """
+You are a helpful assistant that answers questions about the user's system status.
+Provide clear, concise answers based ONLY on the real-time information provided below.
+
+Current System Status:
+- CPU Info: {cpu_info}
+- Memory Info: {memory_info}
+- Battery Info: {battery_info}
+- Network Info: {network_info}
+- Current Time: {current_time}
+
+Now, please answer the following user question:
+User Question: {user_question}
+"""
+prompt = ChatPromptTemplate.from_template(template)
+
+# Create a simple Output Parser to get the string output
+output_parser = StrOutputParser()
+
+# --- 2. Chain the components together using LangChain Expression Language (LCEL) ---
+# The '|' (pipe) operator links the components in a sequence.
+chain = prompt | llm | output_parser
+
+def ask_llm_langchain(user_input):
     """
-    Answers a user's question about system status using the Gemini API.
+    Answers a user's question by invoking the LangChain chain.
     """
-    # --- FIX: Get the current time dynamically ---
-    # This creates a formatted string like "Wednesday, October 01, 2025 at 11:29 AM IST"
+    # Get the current time dynamically
     now = datetime.datetime.now()
     current_time_str = now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
 
-    # Create the context string with live, up-to-date information
-    context = f"""
-    You are a helpful assistant that answers questions about the user's system status.
-    Provide clear, concise answers based ONLY on the real-time information provided below.
-    Do not make up information if it is not present in the status data.
-
-    Current System Status:
-    - CPU Info: {get_cpu_info()}
-    - Memory Info: {get_memory_info()}
-    - Battery Info: {get_battery_info()}
-    - Network Info: {get_network_info()}
-    - Current Time: {current_time_str} 
-    """
-
-    # Initialize the Gemini model
-    model = genai.GenerativeModel(
-        model_name='gemini-pro-latest', # This is a great choice for this task
-        system_instruction=context
-    )
-
-    # Send the user's query to the model
-    try:
-        response = model.generate_content(user_input)
-        return response.text
-    except Exception as e:
-        return f"An error occurred while communicating with the Gemini API: {e}"
-
-# --- Example Usage ---
-if __name__ == "__main__":
-    print("System Assistant Initialized. Ask me about your system status.")
-    print("Type 'exit' to quit.")
-
-    while True:
-        user_question = input("> ")
-        if user_question.lower() == 'exit':
-            break
-        
-        answer = ask_llm_gemini(user_question)
-        print(f"\nAssistant: {answer}\n")
+    # Prepare the input dictionary for the chain
+    # The keys MUST match the variable names in the prompt template.
+    chain_input = {
+        "cpu_info": get_cpu_info(),
+        "memory_info": get_memory_info(),
+        "battery_info": get_battery_info(),
+        "network_info": get_network_info(),
+        "current_time": current_time_str,
+        "user_question": user_input
+    }
+    
+    # Invoke the chain with the dynamic data
+    response = chain.invoke(chain_input)
+    return response
